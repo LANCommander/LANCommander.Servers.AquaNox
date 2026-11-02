@@ -1,0 +1,44 @@
+#!/bin/sh
+# Start the AquaNox dedicated server (START_EXE).
+#
+# Runs `Aqua.exe -host -si ini\<AQUANOX_CONFIG>_si.des -gi ini\<AQUANOX_CONFIG>_gi.des -nomessagebox`
+# from the game root under Wine and Xvfb. -host is the game's own dedicated mode; it needs the
+# patched Aqua.exe (25-PatchAquaNox hook) and a D3D8 display on Xvfb. The game prints nothing to
+# stdout, so two of its logs are followed into `docker logs`: the multiplayer log
+# (-mp_log <AQUANOX_MP_LOG>: server start, map changes, joins) and log.txt in the profile, which it
+# writes when it aborts. AQUANOX_EXTRA_ARGS and any START_ARGS are appended.
+set -e
+
+root="${SERVER_ROOT:-/config/Merged}"
+cfg="${AQUANOX_CONFIG:-lancommander}"
+mplog="${AQUANOX_MP_LOG-mp.log}"
+profile="${WINEPREFIX:-/config/wineprefix}/drive_c/users/${USER:-lancommander}/AppData/Roaming/AquaNox"
+cd "$root"
+
+if [ ! -f Aqua.exe ]; then
+    echo "Aqua.exe not found in $root. Put an AquaNox v1.18 install in /config/Server." >&2
+    exit 1
+fi
+
+for f in "ini/${cfg}_si.des" "ini/${cfg}_gi.des"; do
+    if [ ! -f "$f" ]; then
+        echo "$f not found in $root." >&2
+        exit 1
+    fi
+done
+
+# shellcheck disable=SC2086 # AQUANOX_EXTRA_ARGS is split on purpose
+set -- -host -si "ini\\${cfg}_si.des" -gi "ini\\${cfg}_gi.des" -nomessagebox ${mplog:+-mp_log "$mplog"} \
+    $AQUANOX_EXTRA_ARGS "$@"
+
+printf 'Starting: Aqua.exe %s\n' "$*"
+printf 'Game port %s/udp (DirectPlay), GameSpy queries on 30510/udp\n' "${AQUANOX_PORT:-30500}"
+
+mkdir -p "$profile"
+tail -n 0 -F "$profile/log.txt" 2>/dev/null &
+if [ -n "$mplog" ]; then
+    tail -n 0 -F "$mplog" 2>/dev/null | sed -u 's/\r$//' &
+fi
+
+export WINE_XVFB="${WINE_XVFB:-true}"
+exec wine-run Aqua.exe "$@"
