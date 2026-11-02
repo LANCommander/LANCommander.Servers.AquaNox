@@ -8,7 +8,7 @@ The image builds on [`lancommander/wine`](https://github.com/LANCommander/LANCom
 ## Features
 
 - Runs the retail v1.18 `Aqua.exe` headless under Wine and Xvfb, in its built-in dedicated server mode
-- Patches a copy of `Aqua.exe` so dedicated mode doesn't crash at start. The original stays untouched in `Server/`.
+- Patches a copy of `Aqua.exe` so dedicated mode doesn't crash at start and players with the same CD key can join (every GOG copy has the same key). The original stays untouched in `Server/`.
 - Native Microsoft DirectPlay is installed into the Wine prefix automatically. Wine's builtin DirectPlay 8 can't host games.
 - The server and game settings (`ini/*_si.des`, `ini/*_gi.des`) are generated from environment variables, and the map rotation is checked against the game type
 - Supports file overlaying using OverlayFS (no file copying required)
@@ -49,7 +49,7 @@ DirectPlay is LAN-oriented and also opens dynamic UDP ports. A network where the
 
 ## Game Files
 
-AquaNox is retail software with no public download. You must provide a **v1.18** install (the GOG release; the folder with `Aqua.exe`, `dat/pak/aquanox*.pak`, `ini/` and `ProfileTemplate/`):
+AquaNox is retail software with no public download. You must provide a **v1.18** install (the GOG release; the folder with `Aqua.exe`, `dat/pak/aquanox*.pak` and `ini/`):
 
 - copy it to `config/Server/`, **or**
 - set `AQUANOX_ARCHIVE_URL` to a zip of that folder. It is downloaded and extracted on first start, if `Server/Aqua.exe` doesn't exist yet. The intro movies (`vfx/mov/`, ~230 MB) are skipped.
@@ -61,7 +61,7 @@ Clients must run the same version (`gamever 1.18`). Multiplayer in 1.17 and late
 ```text
 .
 └── config/
-    ├── Server/            # AquaNox v1.18 install (Aqua.exe, dat/, ini/, ProfileTemplate/)
+    ├── Server/            # AquaNox v1.18 install (Aqua.exe, dat/, ini/)
     ├── Overlay/           # Your files, layered on top of Server/ (patched Aqua.exe and ini/*.des land here)
     ├── Merged/            # Overlayfs merged view (auto-created, the server runs here)
     ├── wineprefix/        # Wine prefix with native DirectPlay and the game profile (auto-created)
@@ -95,7 +95,7 @@ The `AQUANOX_*` settings are written to `ini/<AQUANOX_CONFIG>_si.des` (server) a
 | `AQUANOX_FRAG_LIMIT` | `FragLimit` (0 = off) | `20` |
 | `AQUANOX_CAPTURE_LIMIT` | `CaptureLimit`, CTF only (0 = off) | `5` |
 | `AQUANOX_WEAPON_STAY` | `WeaponStay` | `true` |
-| `AQUANOX_CDKEY` | the server profile's CD key (`g_cdkey`) | the key in `ProfileTemplate/` |
+| `AQUANOX_CDKEY` | the server's own CD key (`g_cdkey` in its profile); `-host` drops to the main menu without a valid one | `1cf2-18ee-109a-2592` (the key every GOG copy has) |
 | `AQUANOX_PATCH_EXE` | patch `Aqua.exe` for dedicated mode (see below) | `true` |
 | `AQUANOX_EXTRA_ARGS` | raw arguments appended to the command line | |
 | `AQUANOX_ARCHIVE_URL` | zip of the game folder, used if `Server/Aqua.exe` is missing | |

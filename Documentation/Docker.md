@@ -33,7 +33,7 @@ services:
     restart: unless-stopped
 ```
 
-Copy an AquaNox **v1.18** install (the GOG release: `Aqua.exe`, `dat/pak/aquanox0-6.pak`, `ini/`, `ProfileTemplate/`) into `Server/` before the first start. You can leave out `vfx/mov/` (the intro movies). Or set `AQUANOX_ARCHIVE_URL` to a zip of that folder.
+Copy an AquaNox **v1.18** install (the GOG release: `Aqua.exe`, `dat/pak/aquanox0-6.pak`, `ini/`) into `Server/` before the first start. You can leave out `vfx/mov/` (the intro movies). Or set `AQUANOX_ARCHIVE_URL` to a zip of that folder.
 
 ## How It Starts
 
@@ -41,7 +41,7 @@ Copy an AquaNox **v1.18** install (the GOG release: `Aqua.exe`, `dat/pak/aquanox
 2. `PostInitializeWinePrefix/20-InstallDirectPlay.ps1` runs `winetricks directplay` once, using the DirectX redist cached in the image. This installs Microsoft's `dpnet.dll` and related DLLs. AquaNox hosts with DirectPlay 8, and Wine's builtin `dpnet` can't host. A marker file, `wineprefix/.lancommander-directplay`, records that the install is done. Delete it to reinstall.
 3. `PostInitialization/20-InstallAquaNox.ps1` checks for `Server/Aqua.exe`. If it's missing and `AQUANOX_ARCHIVE_URL` is set, the hook downloads the archive.
 4. `PostInitialization/25-PatchAquaNox.ps1` writes a patched `Aqua.exe` to `Overlay/` (see below).
-5. `PostInitialization/30-ConfigureAquaNox.ps1` writes `ini/<AQUANOX_CONFIG>_si.des` and `_gi.des` from the `AQUANOX_*` variables (they land in `Overlay/ini/`). It also seeds the game profile in the Wine prefix from `ProfileTemplate/` and sets its display mode.
+5. `PostInitialization/30-ConfigureAquaNox.ps1` writes `ini/<AQUANOX_CONFIG>_si.des` and `_gi.des` from the `AQUANOX_*` variables (they land in `Overlay/ini/`). It also writes the display mode and CD key into the game profile in the Wine prefix.
 6. `START_EXE` (`/usr/local/bin/aquanox-server`) runs `wine-run Aqua.exe -host -si ini\<cfg>_si.des -gi ini\<cfg>_gi.des -nomessagebox -mp_log mp.log` from the game root. It follows `mp.log` and the profile's `log.txt` to stdout.
 
 The game writes nothing to stdout. A successful start looks like:
@@ -57,7 +57,11 @@ Mon Nov 02 18:29:13 2026	game start: dm_narrow DM timelimit: 10 fraglimit: 20 ca
 
 In dedicated mode the game deliberately creates neither its display nor its 2D sound system. The start-up code that follows uses both without checking. It writes through a null display pointer while creating the network (page fault at `0x0050D004`) and reads a null sound pointer while creating the movie player (`0x0041EAED`). On Windows NT and later, and under Wine, `Aqua.exe -host` therefore crashes at once.
 
-The hook flips the two `if (-host) skip creation` branches (`Aqua.exe+0x28F81` and `+0x29226`, `je` to `jmp`), so dedicated mode creates both like a normal start. It only patches the known v1.18 executable (sha256 `ee061c4f…1639`, patched `9eedd8d0…0393`) and leaves any other one alone with a warning. Set `AQUANOX_PATCH_EXE=false` to turn it off. Clients don't need the patch.
+The hook flips the two `if (-host) skip creation` branches (`Aqua.exe+0x28F81` and `+0x29226`, `je` to `jmp`), so dedicated mode creates both like a normal start.
+
+It also removes the duplicate CD key check. When a player joins, the server counts the connected players with the same key and rejects the newcomer with "Error: Duplicate CD Key" when there is another one. Every GOG copy has the same key (`1cf2-18ee-109a-2592`), so only one GOG player could join. The hook turns the counter's `inc [esp+24h]` (`Aqua.exe+0x13AD6F`) into NOPs. The key checksum test ("Error: Invalid CD Key") stays.
+
+It only patches the known v1.18 executable (sha256 `ee061c4f…1639`, patched `7c99d1b3…3713`) and leaves any other one alone with a warning. Set `AQUANOX_PATCH_EXE=false` to turn it off. Clients don't need the patch.
 
 Because the display is real, it needs a Direct3D 8 device, which Wine creates on the Xvfb screen. The device is created fullscreen at the profile's `dsp_width` x `dsp_height` x `dsp_depth`. That mode must be the Xvfb screen size, or the game aborts with `CreateDisplay() - desired resolution not found` in `log.txt`. The configure hook sets it from `WINE_XVFB_SCREEN`. The default 640x480 idles at about 9% of a core; 1024x768 uses about 16%.
 
@@ -117,7 +121,7 @@ Strings are limited to 31 characters (Location to 5) and can't contain `\`. If t
 
 ### Profile
 
-The game keeps its settings in `%APPDATA%\AquaNox\config_1_18.txt`. That is `wineprefix/drive_c/users/lancommander/AppData/Roaming/AquaNox/` here. The configure hook creates it from `ProfileTemplate/`, as the LANCommander client install script does. On every start it sets `dsp_width`, `dsp_height`, `dsp_depth`, `dsp_fsaa` and, with `AQUANOX_CDKEY`, `g_cdkey`. It also deletes `touch.txt`, which the game leaves when it doesn't exit cleanly (always, after `docker stop`). With that file present, the next start asks whether to reset the audio/video settings. The `si_*`/`gi_*` values in the profile are the in-game "Start server" menu's. Dedicated mode ignores them.
+The game keeps its settings in `%APPDATA%\AquaNox\config_1_18.txt`. That is `wineprefix/drive_c/users/lancommander/AppData/Roaming/AquaNox/` here. On every start the configure hook sets `dsp_width`, `dsp_height`, `dsp_depth`, `dsp_fsaa` and `g_cdkey` (`AQUANOX_CDKEY`) in it. It creates the file with just those if it doesn't exist; the game uses its defaults for everything else. Without a valid `g_cdkey`, `-host` silently opens the main menu instead of hosting. It also deletes `touch.txt`, which the game leaves when it doesn't exit cleanly (always, after `docker stop`). With that file present, the next start asks whether to reset the audio/video settings. The `si_*`/`gi_*` values in the profile are the in-game "Start server" menu's. Dedicated mode ignores them.
 
 ### Hooks
 
@@ -134,5 +138,6 @@ Put `.ps1` scripts in `config/Scripts/Hooks/<HookName>/`.
 - **The game exits silently or `log.txt` says "desired resolution not found".** The profile's display mode doesn't match the Xvfb screen. Keep `WINE_XVFB_SCREEN` at a plain `WIDTHxHEIGHTx24` and let the hook set the profile. Don't add `-window`; windowed mode exits silently on a screen the same size as the window.
 - **Nothing on UDP 30500, but 30510 answers.** DirectPlay couldn't host. Make sure the native DirectPlay install ran (`wineprefix/.lancommander-directplay`).
 - **Edits to `Overlay/` from the host while the container runs don't show up.** OverlayFS caches the upper directory. Restart the container, or edit through `Merged/` inside it (`docker exec`).
-- **Clients can't join.** They need v1.18. Each client also needs its own CD key, and the server's own key comes from the profile.
+- **Clients can't join.** They need v1.18 and a CD key that passes the game's checksum test. Duplicate keys are allowed (see the patch above).
+- **The server never binds UDP 30500 and uses a lot of CPU.** It's sitting in the main menu: the profile has no valid `g_cdkey`. Keep `AQUANOX_CDKEY` set.
 - ALSA "cannot find card", `libEGL.so.1` and Vulkan messages in the log are harmless.
